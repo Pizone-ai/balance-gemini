@@ -1,0 +1,56 @@
+{
+  "name": "balance-gemini",
+  "version": "2.1.0",
+  "description": "智能冷却负载均衡的 Gemini API 代理服务，基于 Cloudflare Workers",
+  "main": "worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:development": "wrangler deploy --env development",
+    "test": "node tests/test-api.js",
+    "test:load": "node tests/load-test.js",
+    "lint": "eslint worker.js examples/ tests/",
+    "format": "prettier --write *.js examples/ tests/",
+    "logs": "wrangler tail",
+    "logs:production": "wrangler tail --env production"
+  },
+  "keywords": [
+    "gemini",
+    "api",
+    "proxy",
+    "cloudflare",
+    "workers",
+    "load-balancer",
+    "intelligent-cooling",
+    "rate-limiting",
+    "authentication"
+  ],
+  "author": "Pizone-ai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pizone-ai/balance-gemini.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pizone-ai/balance-gemini/issues"
+  },
+  "homepage": "https://github.com/Pizone-ai/balance-gemini#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.0.0",
+    "wrangler": "^3.78.12"
+  },
+  "dependencies": {},
+  "files": [
+    "worker.js",
+    "README.md",
+    "DEPLOYMENT_GUIDE.md",
+    "examples/",
+    "docs/"
+  ]
+}

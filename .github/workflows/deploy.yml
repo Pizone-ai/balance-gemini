@@ -1,0 +1,117 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linting
+        run: npm run lint
+        continue-on-error: true
+      
+      - name: Run tests
+        run: npm test
+        env:
+          TEST_WORKER_URL: ${{ secrets.TEST_WORKER_URL }}
+          TEST_AUTH_TOKEN: ${{ secrets.TEST_AUTH_TOKEN }}
+
+  deploy-development:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Deploy to Development
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Deploy to Cloudflare Workers (Development)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env development
+          secrets: |
+            GEMINI_API_KEYS
+            VALID_AUTH_TOKENS
+        env:
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS_DEV }}
+          VALID_AUTH_TOKENS: ${{ secrets.VALID_AUTH_TOKENS_DEV }}
+
+  deploy-production:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Deploy to Production
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Deploy to Cloudflare Workers (Production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env production
+          secrets: |
+            GEMINI_API_KEYS
+            VALID_AUTH_TOKENS
+        env:
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS_PROD }}
+          VALID_AUTH_TOKENS: ${{ secrets.VALID_AUTH_TOKENS_PROD }}
+      
+      - name: Health Check
+        run: |
+          sleep 10
+          curl -f -H "Authorization: Bearer ${{ secrets.PROD_HEALTH_CHECK_TOKEN }}" \
+               "${{ secrets.PROD_WORKER_URL }}/v1/status" || exit 1
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run security audit
+        run: npm audit --audit-level moderate
+        continue-on-error: true
+      
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD

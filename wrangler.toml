@@ -1,0 +1,49 @@
+name = "balance-gemini"
+main = "worker.js"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 生产环境配置
+[env.production]
+name = "balance-gemini-prod"
+vars = { LOAD_BALANCE_STRATEGY = "round-robin", HEALTH_CHECK_INTERVAL = "300" }
+
+# 开发环境配置
+[env.development]
+name = "balance-gemini-dev"
+vars = { LOAD_BALANCE_STRATEGY = "round-robin", HEALTH_CHECK_INTERVAL = "60" }
+
+# 预览环境配置
+[env.preview]
+name = "balance-gemini-preview"
+vars = { LOAD_BALANCE_STRATEGY = "random", HEALTH_CHECK_INTERVAL = "120" }
+
+# 全局变量配置
+[vars]
+LOAD_BALANCE_STRATEGY = "round-robin"
+HEALTH_CHECK_INTERVAL = "300"
+
+# 环境变量配置说明
+# 以下变量需要通过 wrangler secret put 命令设置：
+# - GEMINI_API_KEYS: Gemini API 密钥池（逗号分隔）
+# - VALID_AUTH_TOKENS: 认证令牌池（逗号分隔）
+#
+# 设置命令示例：
+# wrangler secret put GEMINI_API_KEYS --env production
+# wrangler secret put VALID_AUTH_TOKENS --env production
+
+# 构建配置
+[build]
+command = ""
+
+# 部署配置
+[triggers]
+crons = []
+
+# 资源限制
+[limits]
+cpu_ms = 50
+
+# 兼容性设置
+[placement]
+mode = "smart"

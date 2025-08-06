@@ -144,12 +144,6 @@ LOAD_BALANCE_STRATEGY = "round-robin"  # 或 "random"
 - `round-robin`: 轮询策略（默认）
 - `random`: 随机选择策略
 
-### 健康检查
-
-```toml
-[vars]
-HEALTH_CHECK_INTERVAL = "300"  # 秒
-```
 
 ## 🧠 智能冷却机制
 

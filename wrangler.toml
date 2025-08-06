@@ -6,22 +6,21 @@ compatibility_flags = ["nodejs_compat"]
 # 生产环境配置
 [env.production]
 name = "balance-gemini-prod"
-vars = { LOAD_BALANCE_STRATEGY = "round-robin", HEALTH_CHECK_INTERVAL = "300" }
+vars = { LOAD_BALANCE_STRATEGY = "round-robin" }
 
 # 开发环境配置
 [env.development]
 name = "balance-gemini-dev"
-vars = { LOAD_BALANCE_STRATEGY = "round-robin", HEALTH_CHECK_INTERVAL = "60" }
+vars = { LOAD_BALANCE_STRATEGY = "round-robin" }
 
 # 预览环境配置
 [env.preview]
 name = "balance-gemini-preview"
-vars = { LOAD_BALANCE_STRATEGY = "random", HEALTH_CHECK_INTERVAL = "120" }
+vars = { LOAD_BALANCE_STRATEGY = "random" }
 
 # 全局变量配置
 [vars]
 LOAD_BALANCE_STRATEGY = "round-robin"
-HEALTH_CHECK_INTERVAL = "300"
 
 # 环境变量配置说明
 # 以下变量需要通过 wrangler secret put 命令设置：

@@ -70,13 +70,6 @@ mobile-app-token-v1
 描述: 负载均衡策略（round-robin 或 random）
 ```
 
-```
-变量名: HEALTH_CHECK_INTERVAL
-类型: Text
-值: 300
-描述: 健康检查间隔（秒）
-```
-
 ### 步骤 4: 验证部署
 
 部署完成后，您会获得 Worker URL：

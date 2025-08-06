@@ -38,11 +38,3 @@ command = ""
 # 部署配置
 [triggers]
 crons = []
-
-# 资源限制
-[limits]
-cpu_ms = 50
-
-# 兼容性设置
-[placement]
-mode = "smart"

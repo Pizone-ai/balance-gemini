@@ -13,7 +13,7 @@ const BASE_HEADERS = {
   "Connection": "keep-alive"
 };
 
-// API Key Pool Manager with Intelligent Cooling System
+// API Key Pool Manager with Optimized Cooling System
 class ApiKeyPool {
   constructor(keys, strategy = 'round-robin') {
     this.keys = keys.filter(key => key && key.trim());
@@ -21,8 +21,8 @@ class ApiKeyPool {
     this.currentIndex = 0;
     this.failedKeys = new Set();           // 永久失效的 keys (401/403)
     this.coolingKeys = new Map();          // 冷却中的 keys {key: 恢复时间戳}
-    this.keyFailCount = new Map();         // 每个 key 的失败次数
     this.lastCleanup = 0;                  // 上次清理时间
+    this.hasCoolingKeys = false;           // 性能优化：标记是否有冷却密钥
     
     // 性能优化：缓存可用 keys，避免频繁过滤
     this.availableKeysCache = [...this.keys];
@@ -36,39 +36,36 @@ class ApiKeyPool {
       throw new Error('No valid API keys provided');
     }
     
-    // console.log(`ApiKeyPool initialized with ${this.keys.length} keys, strategy: ${this.strategy}`);
   }
   
   getNextKey() {
-    // 定期清理过期的冷却状态（每分钟一次）
+    // 快速路径：无冷却密钥时完全跳过所有检查
+    if (!this.hasCoolingKeys) {
+      return this.getAvailableKey();
+    }
+    
+    // 慢速路径：有冷却密钥时，1小时检查一次
     const now = Date.now();
-    if (now - this.lastCleanup > 60000) {
+    if (now - this.lastCleanup > 3600000) { // 1小时 = 3600000ms
       this.cleanupExpiredKeys();
       this.lastCleanup = now;
     }
     
-    // 性能优化：使用缓存的可用 keys，避免频繁过滤
+    return this.getAvailableKey();
+  }
+  
+  getAvailableKey() {
+    // 简化缓存逻辑：只在真正需要时才重建
     if (!this.cacheValid) {
       this.updateAvailableKeysCache();
     }
     
+    // 如果没有可用密钥，执行应急处理
     if (this.availableKeysCache.length === 0) {
-      // 如果没有可用的 key，检查是否有即将恢复的冷却 key
-      if (this.coolingKeys.size > 0) {
-        const nextAvailableKey = this.getNextCoolingKey();
-        if (nextAvailableKey) {
-          // console.warn(`No available keys, using cooling key: ${nextAvailableKey.substring(0, 10)}...`);
-          return nextAvailableKey;
-        }
-      }
-      
-      // 最后手段：重置所有状态
-      // console.error('All keys failed, resetting all states');
-      this.resetAllKeys();
-      return this.keys[0];
+      return this.handleEmergencyCase();
     }
     
-    // 从可用 keys 中选择
+    // 正常的密钥选择
     switch (this.strategy) {
       case 'round-robin':
         return this.roundRobin(this.availableKeysCache);
@@ -77,6 +74,30 @@ class ApiKeyPool {
       default:
         return this.availableKeysCache[0];
     }
+  }
+  
+  handleEmergencyCase() {
+    // 应急情况：立即检查一次是否有密钥可恢复
+    if (this.hasCoolingKeys) {
+      this.cleanupExpiredKeys();
+      if (!this.cacheValid) {
+        this.updateAvailableKeysCache();
+      }
+    }
+    
+    // 如果还是没有，使用冷却时间最短的密钥
+    if (this.availableKeysCache.length === 0) {
+      const emergencyKey = this.getNextCoolingKey();
+      if (emergencyKey) {
+        return emergencyKey;
+      }
+      
+      // 最后手段：重置所有状态
+      this.resetAllKeys();
+      return this.keys[0];
+    }
+    
+    return this.availableKeysCache[0];
   }
   
   // 性能优化：更新可用 keys 缓存
@@ -108,28 +129,26 @@ class ApiKeyPool {
   markKeyFailed(key) {
     this.failedKeys.add(key);
     this.coolingKeys.delete(key); // 从冷却中移除
-    this.keyFailCount.delete(key); // 清除失败计数
     this.invalidateCache(); // 使缓存失效
-    // console.warn(`API Key permanently failed: ${key.substring(0, 10)}...`);
   }
   
   // 临时冷却（429/503/502/504 错误）
   markKeyCooling(key, minutes) {
     const coolUntil = Date.now() + (minutes * 60 * 1000);
     this.coolingKeys.set(key, coolUntil);
+    this.hasCoolingKeys = true; // 标记有冷却密钥
     this.invalidateCache(); // 使缓存失效
-    
-    // const hours = minutes >= 60 ? `${Math.floor(minutes / 60)}h${minutes % 60}m` : `${minutes}m`;
-    // console.warn(`API Key cooling for ${hours}: ${key.substring(0, 10)}...`);
   }
   
-  // 标记 key 成功使用（重置失败计数）
+  // 标记 key 成功使用
   markKeySuccess(key) {
-    this.keyFailCount.delete(key);
+    // 空实现，保持接口一致性
   }
   
   // 清理过期的冷却状态
   cleanupExpiredKeys() {
+    if (!this.hasCoolingKeys) return;
+    
     const now = Date.now();
     let cleanedCount = 0;
     
@@ -137,13 +156,14 @@ class ApiKeyPool {
       if (now >= coolUntil) {
         this.coolingKeys.delete(key);
         cleanedCount++;
-        // console.log(`Key recovered from cooling: ${key.substring(0, 10)}...`);
       }
     }
     
+    // 更新状态标记
+    this.hasCoolingKeys = this.coolingKeys.size > 0;
+    
     if (cleanedCount > 0) {
       this.invalidateCache(); // 有 key 恢复时使缓存失效
-      // console.log(`Cleaned up ${cleanedCount} expired cooling keys`);
     }
   }
   
@@ -160,9 +180,8 @@ class ApiKeyPool {
   resetAllKeys() {
     this.failedKeys.clear();
     this.coolingKeys.clear();
-    this.keyFailCount.clear();
+    this.hasCoolingKeys = false; // 重置冷却状态标记
     this.invalidateCache(); // 重置时使缓存失效
-    // console.log('Reset all key states (failed, cooling, fail counts)');
   }
   
   
@@ -314,7 +333,6 @@ export default {
         keyPool = new ApiKeyPool(geminiKeys, strategy);
         authManager = new AuthManager(validTokens);
         
-        // console.log(`Initialized with ${keyPool.getStats().totalKeys} API keys and ${authManager.getValidTokenCount()} auth tokens`);
       } catch (err) {
         console.error('Failed to initialize services:', err);
         return createErrorResponse(500, 'Service initialization error');
@@ -358,7 +376,6 @@ export default {
               // 简化监控逻辑，避免重复使用 response body
               // 流的完成状态已经在 handleStreamResponse 中处理
               setTimeout(() => {
-                // console.log('Stream processing timeout completed');
                 resolve();
               }, 30000); // 30秒超时保护
             }));
@@ -485,14 +502,12 @@ async function handleRequest(req) {
             return createErrorResponse(response.status, errorText);
           } catch (bodyError) {
             // 如果读取 body 失败，返回通用错误信息
-            // console.warn('Failed to read error response body:', bodyError.message);
             return createErrorResponse(response.status, `HTTP ${response.status} Error`);
           }
         }
         
       } catch (err) {
         lastError = err;
-        // console.error(`Network error with key ${apiKey.substring(0, 10)}...:`, err.message);
         
         // 网络错误，短期冷却
         keyPool.markKeyCooling(apiKey, 5); // 5分钟冷却
@@ -514,7 +529,6 @@ function handleApiError(apiKey, response) {
   if (status === 401 || status === 403) {
     // 永久失效：API key 无效或权限不足
     keyPool.markKeyFailed(apiKey);
-    // console.error(`Key permanently failed (${status}): ${apiKey.substring(0, 10)}...`);
     return 'permanent';
   }
   
@@ -523,28 +537,24 @@ function handleApiError(apiKey, response) {
     const retryAfter = response.headers.get('Retry-After');
     const coolMinutes = retryAfter ? Math.max(parseInt(retryAfter) / 60, 24 * 60) : 24 * 60;
     keyPool.markKeyCooling(apiKey, coolMinutes);
-    // console.warn(`Key rate limited (429), cooling for ${coolMinutes/60}h: ${apiKey.substring(0, 10)}...`);
     return 'temporary';
   }
   
   if (status === 503) {
     // 服务不可用：24小时冷却
     keyPool.markKeyCooling(apiKey, 24 * 60);
-    // console.warn(`Service unavailable (503), cooling for 24h: ${apiKey.substring(0, 10)}...`);
     return 'temporary';
   }
   
   if (status === 502 || status === 504) {
     // 网关错误：5分钟冷却
     keyPool.markKeyCooling(apiKey, 5);
-    // console.warn(`Gateway error (${status}), cooling for 5min: ${apiKey.substring(0, 10)}...`);
     return 'temporary';
   }
   
   if (status >= 500) {
     // 其他服务器错误：短期冷却
     keyPool.markKeyCooling(apiKey, 10);
-    // console.warn(`Server error (${status}), cooling for 10min: ${apiKey.substring(0, 10)}...`);
     return 'temporary';
   }
   
@@ -736,7 +746,6 @@ function createOptimizedParseStream(model, id) {
         
         // 性能优化：检查缓冲区大小，防止内存泄漏
         if (buffer.length > MAX_BUFFER_SIZE) {
-          // console.warn('Buffer size exceeded limit, clearing buffer');
           buffer = buffer.slice(-MAX_BUFFER_SIZE / 2); // 保留后半部分
         }
         
@@ -766,9 +775,9 @@ function createOptimizedParseStream(model, id) {
                   const now = Date.now();
                   const timeSinceLastChunk = now - lastChunkTime;
                   
-                  // 监控异常延迟（超过500ms警告）
-                  if (timeSinceLastChunk > 5000 && chunkCount > 10) { // 调整阈值为 5 秒
-                    // console.warn(`Stream delay detected: ${timeSinceLastChunk}ms between chunks`);
+                  // 监控异常延迟（超过5秒警告）
+                  if (timeSinceLastChunk > 5000 && chunkCount > 10) {
+                    // 延迟检测，但不输出日志
                   }
                   lastChunkTime = now;
                 }
@@ -793,7 +802,6 @@ function createOptimizedParseStream(model, id) {
                 
               } catch (e) {
                 // 继续处理，不中断流
-                // console.warn('Parse error, continuing stream:', e.message);
                 // 发送空内容块保持流连续性
                 controller.enqueue(createOptimizedChunk("", model, id, false));
               }
@@ -802,12 +810,11 @@ function createOptimizedParseStream(model, id) {
         }
       } catch (err) {
         // 错误恢复，不中断流
-        // console.warn('Stream processing error, recovering:', err.message);
         // 发送恢复块
         try {
           controller.enqueue(createOptimizedChunk("", model, id, false));
         } catch (recoveryErr) {
-          // console.error('Failed to recover from stream error:', recoveryErr);
+          // 恢复失败，静默处理
         }
       }
     },
@@ -827,7 +834,7 @@ function createOptimizedParseStream(model, id) {
                   controller.enqueue(createOptimizedChunk(content, model, id, false));
                 }
               } catch (e) {
-                // console.warn('Final chunk parse error:', e.message);
+                // 解析错误，静默处理
               }
             }
           }
@@ -835,14 +842,12 @@ function createOptimizedParseStream(model, id) {
         
         // 发送结束标记
         controller.enqueue(`data: [DONE]\r\n\r\n`);
-        // console.log(`Stream completed: ${chunkCount} chunks processed for model ${model}`);
       } catch (err) {
-        // console.error('Flush error:', err);
         // 确保流正常结束
         try {
           controller.enqueue(`data: [DONE]\r\n\r\n`);
         } catch (finalErr) {
-          // console.error('Failed to send final DONE marker:', finalErr);
+          // 最终错误，静默处理
         }
       }
     }
@@ -862,7 +867,6 @@ const reasonsMap = {
 function handleStreamResponse(response, model, id) {
   // 检查 response 是否有效
   if (!response || !response.body) {
-    // console.error('Invalid response or missing body for streaming');
     return createErrorResponse(500, 'Invalid streaming response');
   }
 
@@ -874,7 +878,6 @@ function handleStreamResponse(response, model, id) {
       try {
         controller.enqueue(chunk);
       } catch (err) {
-        // console.warn('Error recovery triggered:', err.message);
         // 发送空内容块保持流连续性，不中断流
         const recoveryChunk = createOptimizedChunk("", model, id, false);
         controller.enqueue(recoveryChunk);
@@ -890,12 +893,11 @@ function handleStreamResponse(response, model, id) {
     .pipeThrough(new TextEncoderStream())                // 编码层
     .pipeTo(writable)
     .catch(err => {
-      // console.error('Stream pipeline error:', err);
       // 优雅关闭而不是突然中断
       try {
         writable.close();
       } catch (closeErr) {
-        // console.error('Failed to close writable stream:', closeErr);
+        // 关闭失败，静默处理
       }
     });
 
@@ -987,7 +989,6 @@ async function handleModels() {
           const errorText = await responseClone.text();
           return createErrorResponse(response.status, errorText);
         } catch (bodyError) {
-          // console.warn('Failed to read models error response body:', bodyError.message);
           return createErrorResponse(response.status, `Models API HTTP ${response.status} Error`);
         }
       }
@@ -1096,7 +1097,7 @@ async function handleStatus() {
           coolingDetails: coolingDetails.length > 0 ? coolingDetails : undefined
         },
         auth: authStats,
-        version: "2.3.0-performance",
+        version: "2.4.0-ultra-performance",
         features: [
           "Load Balancing",
           "Intelligent Error Handling",
@@ -1104,7 +1105,10 @@ async function handleStatus() {
           "Enhanced Error Recovery",
           "24h Cooling for 429/503",
           "5min Cooling for 502/504",
-          "Auto Recovery",
+          "Ultra-Low Frequency Auto Recovery (1h)",
+          "Smart State Tracking",
+          "Zero-Overhead Fast Path",
+          "Emergency Fallback System",
           "Stream Performance Monitoring",
           "Concurrency Safe",
           "Memory Optimized",
